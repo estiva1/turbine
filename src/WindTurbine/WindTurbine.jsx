@@ -5,7 +5,7 @@ import { CustomEase } from "gsap/all";
 import { MathUtils, RectAreaLight } from "three";
 import { Canvas, useThree } from "@react-three/fiber";
 import { useFrame as useRaf } from "@darkroom.engineering/hamo";
-import { Bloom, EffectComposer } from "@react-three/postprocessing";
+import { Bloom, EffectComposer, FXAA } from "@react-three/postprocessing";
 import { OrbitControls, Preload, useGLTF } from "@react-three/drei";
 import { RectAreaLightHelper, RectAreaLightUniformsLib } from "three/examples/jsm/Addons.js";
 import { forwardRef, memo, Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -356,7 +356,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
 
   useRaf((time, deltaTime) => {
     const normalizedDelta = deltaTime / (1000 / 60); // Scale deltaTime relative to 60 FPS
-    console.log(farmingAllowed);
 
     if (farmingAllowed) {
       if (constantRotationEnabled) {
@@ -690,6 +689,7 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
 
       <primitive ref={turbineRef} object={turbine_model} scale={[1.1, 1.1, 1.1]} position={[0, 2.85, 5.5]} />
       <EffectComposer multisampling={0} autoClear={true}>
+        <FXAA />
         <Bloom
           ref={bloomRef}
           levels={6}
@@ -708,6 +708,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isEffectsReady, setIsEffectsReady] = useState(false);
   const [animationsReady, setAnimationsReady] = useState(false);
+  const [isActive, setIsActive] = useState(false); // Replacing farmingAllowed with active state
 
   const rotationSpeedRef = useRef(0.01); // Initial rotation speed
   const bladeLightIntensityRef = useRef(2.5); // Initial intensity
@@ -723,7 +724,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
   }, []);
 
   const handleInteraction = () => {
-    if (!farmingAllowed) return;
+    if (!isActive) return;
 
     if (rotationSpeedRef.current >= maxSpeed && bladeLightIntensityRef.current >= maxBladeLightIntensity) {
       return;
@@ -761,9 +762,13 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
         visibility: animationsReady ? "visible" : "hidden",
         transition: "opacity 0.1s, visibility 0.1s",
         width: "100%",
-        height: "100%"
+        height: "100%",
       }}
     >
+      <div style={{ position: "absolute", bottom: "20px", left: "20px", zIndex: 5}}>
+        <button onClick={() => setIsActive(true)}>Activate</button>
+        <button onClick={() => setIsActive(false)}>Stop</button>
+      </div>
       <Stats />
       <Canvas
         gl={{
@@ -771,7 +776,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
           antialias: false,
           powerPreference: "low-power",
         }}
-        dpr={[1, 1.75]}
+        dpr={[1, 2]}
         camera={{ near: 1, far: 1000, fov: 32 }}
         onPointerDown={handleInteraction}
         {...props}
@@ -781,7 +786,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
           <Turbine
             rotationSpeedRef={rotationSpeedRef}
             bladeLightIntensityRef={bladeLightIntensityRef}
-            farmingAllowed={farmingAllowed}
+            farmingAllowed={isActive}
             onLoaded={handleModelLoaded}
             startAnimation={animationsReady}
           />
