@@ -689,7 +689,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
 
       <primitive ref={turbineRef} object={turbine_model} scale={[1.1, 1.1, 1.1]} position={[0, 2.85, 5.5]} />
       <EffectComposer multisampling={0} autoClear={true}>
-        <FXAA />
         <Bloom
           ref={bloomRef}
           levels={6}
@@ -776,7 +775,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
           antialias: false,
           powerPreference: "low-power",
         }}
-        dpr={[1, 2]}
+        dpr={[1, 1.7]}
         camera={{ near: 1, far: 1000, fov: 32 }}
         onPointerDown={handleInteraction}
         {...props}
