@@ -347,30 +347,27 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
     return Math.max(min, Math.min(input, max));
   };
 
-  const playbackRate = Math.min(Math.max(rotationSpeedRef.current / 0.1, 0.35), 3);
   const minRate = 0.35;
   const maxRate = 3;
   const minVolume = 0.05;
   const maxVolume = 0.6;
+  const playbackRate = Math.min(Math.max(rotationSpeedRef.current / 0.1, 0.35), 3);
   const volume = ((playbackRate - minRate) / (maxRate - minRate)) * (maxVolume - minVolume) + minVolume;
 
+  const blinkDuration = 830;
+
   useRaf((time, deltaTime) => {
-    const normalizedDelta = deltaTime / (1000 / 60); // Scale deltaTime relative to 60 FPS
+    const normalizedDelta = deltaTime / 16.67; // Scale deltaTime relative to ~60 FPS
+    const currentRotation = bladesRef.current.rotation.x;
 
-    if (farmingAllowed) {
-      if (constantRotationEnabled) {
-        const currentRotation = bladesRef.current.rotation.x;
+    switch (true) {
+      case farmingAllowed && constantRotationEnabled: {
         const newRotation = currentRotation - rotationSpeedRef.current * normalizedDelta;
-
-        // Normalize the rotation to be within 0 to fullRotation
-        const normalizedRotation = ((newRotation % fullRotation) + fullRotation) % fullRotation;
-
-        // Calculate the current segment
+        const normalizedRotation = ((newRotation % fullRotation) + fullRotation) % fullRotation; // Normalize after new rotation
         const currentSegment = -Math.floor(normalizedRotation / segmentAngle);
 
         if (currentSegment !== lastTriggeredSegment) {
           lastTriggeredSegment = currentSegment;
-
           sound.rate(playbackRate);
           sound.volume(volume);
           sound.play();
@@ -379,45 +376,40 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
           }
         }
 
-        // Update blade rotation
         bladesRef.current.rotation.x = newRotation;
-      }
-    } else if (!farmingAllowed && !isAnimatingToTarget) {
-      // Normalize the current rotation to be within 0 to fullRotation
-      const normalizedRotation = ((bladesRef.current.rotation.x % fullRotation) + fullRotation) % fullRotation;
-
-      // Calculate the target rotation to align the top blade vertically
-      targetRotation = Math.round(normalizedRotation / segmentAngle) * segmentAngle;
-
-      // If the target rotation is not the same as the current rotation, start animating
-      if (targetRotation !== normalizedRotation) {
-        isAnimatingToTarget = true;
-      }
-    } else if (isAnimatingToTarget) {
-      // Normalize the current rotation to be within 0 to fullRotation
-      const normalizedRotation = ((bladesRef.current.rotation.x % fullRotation) + fullRotation) % fullRotation;
-
-      // Calculate the delta rotation to the target
-      let deltaRotation = targetRotation - normalizedRotation;
-
-      // Handle the case where the shortest path might be in the opposite direction
-      if (deltaRotation > Math.PI) {
-        deltaRotation -= fullRotation;
-      } else if (deltaRotation < -Math.PI) {
-        deltaRotation += fullRotation;
+        break;
       }
 
-      // If the delta is very small, snap to the target rotation
-      if (Math.abs(deltaRotation) < 0.01) {
-        bladesRef.current.rotation.x = targetRotation;
-        isAnimatingToTarget = false;
-      } else {
-        bladesRef.current.rotation.x += deltaRotation * 0.1; // Adjust the 0.1 for speed of animation
+      case !farmingAllowed && !isAnimatingToTarget: {
+        const normalizedRotation = ((currentRotation % fullRotation) + fullRotation) % fullRotation; // Ensure correct normalization
+        targetRotation = Math.round(normalizedRotation / segmentAngle) * segmentAngle;
+        if (targetRotation !== normalizedRotation) {
+          isAnimatingToTarget = true;
+        }
+        break;
+      }
+
+      case isAnimatingToTarget: {
+        const normalizedRotation = ((currentRotation % fullRotation) + fullRotation) % fullRotation;
+        let deltaRotation = targetRotation - normalizedRotation;
+
+        // Handle shortest rotation path
+        if (deltaRotation > Math.PI) deltaRotation -= fullRotation;
+        else if (deltaRotation < -Math.PI) deltaRotation += fullRotation;
+
+        // Snap to target if very close
+        if (Math.abs(deltaRotation) < 0.01) {
+          bladesRef.current.rotation.x = targetRotation;
+          isAnimatingToTarget = false;
+        } else {
+          bladesRef.current.rotation.x += deltaRotation * 0.1; // Adjust for speed
+        }
+        break;
       }
     }
 
+    // Handle blinking lights when farming is disabled
     if (!farmingAllowed) {
-      const blinkDuration = 830;
       const isBlinkPhase = Math.floor(time % (blinkDuration * 2)) < blinkDuration;
 
       if (isBlinkPhase && !blinkingRef.current) {
@@ -764,7 +756,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
         height: "100%",
       }}
     >
-      <div style={{ position: "absolute", bottom: "20px", left: "20px", zIndex: 5}}>
+      <div style={{ position: "absolute", bottom: "20px", left: "20px", zIndex: 5 }}>
         <button onClick={() => setIsActive(true)}>Activate</button>
         <button onClick={() => setIsActive(false)}>Stop</button>
       </div>
@@ -775,7 +767,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
           antialias: false,
           powerPreference: "low-power",
         }}
-        dpr={[1, 1.7]}
+        dpr={[1, 2]}
         camera={{ near: 1, far: 1000, fov: 32 }}
         onPointerDown={handleInteraction}
         {...props}
