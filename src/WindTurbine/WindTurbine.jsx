@@ -3,7 +3,7 @@ import { Howl } from "howler";
 import * as THREE from "three";
 import { CustomEase } from "gsap/all";
 import { MathUtils, RectAreaLight } from "three";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, invalidate, useThree } from "@react-three/fiber";
 import { useFrame as useRaf } from "@darkroom.engineering/hamo";
 import { Bloom, EffectComposer, FXAA } from "@react-three/postprocessing";
 import { OrbitControls, Preload, useGLTF } from "@react-three/drei";
@@ -18,6 +18,7 @@ import WaterSurfaceSimple from "../WaterSurface/WaterSurfaceSimple";
 import RotatingBackground from "../RotatingBackground/RotatingBackground";
 
 import { Stats } from "../lib/stats/stats";
+import { useNavigate } from "react-router-dom";
 
 gsap.registerPlugin(CustomEase);
 THREE.ColorManagement.enabled = true;
@@ -58,6 +59,7 @@ const logSceneStructure = (object, depth = 0) => {
 };
 
 const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, startAnimation, onLoaded }) => {
+  console.log("Turbine rerendered");
   const { camera } = useThree();
   const { scene: turbine_model } = useGLTF(turbine);
 
@@ -137,10 +139,10 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
   const targetEmissiveIntensityGreen = 2.5;
 
   //---Scene states
-  const [cameraPosition, setCameraPosition] = useState(sceneState.camera.position.init);
-  const [rectArealightIntensity, setRectArealightIntensity] = useState(sceneState.envLights.rectArealight.intensity.init);
-  const [directionalLightPosition, setDirectionalLightPosition] = useState(sceneState.envLights.directionalLight.position.init);
-  const [directionalLightIntensity, setDirectionalLightIntensity] = useState(sceneState.envLights.directionalLight.intensity.init);
+  const cameraPositionRef = useRef(sceneState.camera.position.init);
+  const rectArealightIntensity = useRef(sceneState.envLights.rectArealight.intensity.init);
+  const directionalLightPosition = useRef(sceneState.envLights.directionalLight.position.init);
+  const directionalLightIntensity = useRef(sceneState.envLights.directionalLight.intensity.init);
 
   const [bloomIntensity, setBloomIntensity] = useState(sceneState.bloom.intensity.init);
   const [emissiveIntensity, setEmissiveIntensity] = useState(bladeLightIntensityRef.current);
@@ -148,7 +150,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
   const [outerBladeLightsColor, setOuterBladeLightsColor] = useState(sceneState.bladeLights.outerBladeLights.emissiveColor.init);
 
   const [notInteracting, setNotInteracting] = useState(false);
-  const [constantRotationEnabled, setConstantRotationEnabled] = useState(false);
 
   //---Light Refs
   const bloomRef = useRef(null);
@@ -207,21 +208,23 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
   // }, [turbineMetalness, turbineRoughness, turbineMaterial]);
 
   useEffect(() => {
-    if (startAnimation) {
-      camera.position.z = cameraPosition;
-      camera.lookAt(0, 0, 0);
-      // console.log('RERENDER OCCURED')
-    }
-  }, [startAnimation]);
-
-  useEffect(() => {
     if (turbine_model) {
       //logSceneStructure(turbine_model);
 
       const turbine = turbine_model.getObjectByName("Windmill_V21");
 
       turbine_model.traverse(node => {
-        node.material = turbineMaterial;
+        if (node.isMesh) {
+          node.material = turbineMaterial;
+
+          if (node.material && node.material.dispose) {
+            node.material.dispose();
+          }
+
+          if (node.geometry) {
+            node.geometry.dispose();
+          }
+        }
 
         const bladesGroup = turbine.getObjectByName("Wings");
         if (bladesGroup) {
@@ -361,7 +364,7 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
     const currentRotation = bladesRef.current.rotation.x;
 
     switch (true) {
-      case farmingAllowed && constantRotationEnabled: {
+      case farmingAllowed: {
         const newRotation = currentRotation - rotationSpeedRef.current * normalizedDelta;
         const normalizedRotation = ((newRotation % fullRotation) + fullRotation) % fullRotation; // Normalize after new rotation
         const currentSegment = -Math.floor(normalizedRotation / segmentAngle);
@@ -431,28 +434,22 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
 
     const handleInteraction = () => {
       setNotInteracting(true);
-      // console.log('INTERACTING: ', notInteracting)
 
       clearTimeout(timer);
       clearInterval(decayInterval);
 
       timer = setTimeout(() => {
         if (notInteracting) {
-          // console.log('NO INTERACTION')
-
           decayInterval = setInterval(() => {
             if (rotationSpeedRef.current > 0.01 || bladeLightIntensityRef.current > targetEmissiveIntensityGreen) {
-              // console.log('COOLDOWN')
               rotationSpeedRef.current = Math.max(rotationSpeedRef.current - 0.001, 0.01);
               bladeLightIntensityRef.current = Math.max(bladeLightIntensityRef.current - 0.175, targetEmissiveIntensityGreen);
 
-              // Debounce
               if (Math.abs(bladeLightIntensityRef.current - emissiveIntensity) > debounceValueForLights) {
                 outerLightMaterial.emissive.set(bladeLightIntensityRef.current);
                 innerLightMaterial.emissive.set(bladeLightIntensityRef.current);
               }
             } else {
-              // console.log('COOLDOWN FINISHED')
               setNotInteracting(false);
               clearInterval(decayInterval);
               rotationSpeedRef.current > 0.01 ? (rotationSpeedRef.current = 0.1) : rotationSpeedRef.current;
@@ -466,7 +463,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
     window.addEventListener("touchstart", handleInteraction);
 
     return () => {
-      // console.log('COOLDOWN FINISHED')
       setEmissiveIntensity(2.5);
       clearTimeout(timer);
       clearInterval(decayInterval);
@@ -486,7 +482,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
       );
       switchInnerBladeLights(sceneState.bladeLights.innerBladeLights.emissiveColor.init);
       switchOuterBladeLights(sceneState.bladeLights.outerBladeLights.emissiveColor.init);
-      setConstantRotationEnabled(false);
     } else if (farmingAllowed) {
       shiftCamera(sceneState.camera.position.target);
       switchEnvLights(
@@ -496,9 +491,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
       );
       switchInnerBladeLights(sceneState.bladeLights.innerBladeLights.emissiveColor.green);
       switchOuterBladeLights(sceneState.bladeLights.outerBladeLights.emissiveColor.green);
-      setTimeout(() => {
-        setConstantRotationEnabled(true);
-      }, 1100);
     }
   }, [farmingAllowed]);
 
@@ -521,7 +513,6 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
       repeatDelay: 0.415,
       yoyo: true,
       ease: "power3.inOut",
-      //ease: CustomEase.create("custom", "M0,0 C0.29,0 0.355,-0.007 0.426,0.077 0.495,0.16 0.481,0.362 0.513,0.502 0.533,0.592 0.516,0.818 0.579,0.912 0.654,1.023 0.704,1 1,1 "),
       onUpdate: function () {
         updateColor.set(this.targets()[0].color);
         outerLightMaterial.emissive.set(updateColor);
@@ -565,6 +556,8 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
         setInnerBladeLightsColor(targetColor);
       },
     });
+
+    return tl;
   };
 
   const switchOuterBladeLights = targetColor => {
@@ -575,6 +568,7 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
 
     const animationTargets = {
       emissive: { color: outerBladeLightsColor },
+      intensity: { value: emissiveIntensity },
       bloom: bloomRef.current,
     };
 
@@ -590,18 +584,24 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
         setOuterBladeLightsColor(targetColor);
       },
     });
+
     tl.to(
       animationTargets.bloom,
       {
         intensity: sceneState.bloom.intensity.target,
         duration: 0.83,
         ease: "power1.inOut",
+        onUpdate: function () {
+          bloomRef.current.intensity = this.targets()[0].intensity;
+        },
         onComplete: () => {
           setBloomIntensity(sceneState.bloom.intensity.target);
         },
       },
       0
     );
+
+    return tl;
   };
 
   const switchEnvLights = (directionalLightPositionTarget, directionalLightIntensityTarget, rectArealightIntensityTarget) => {
@@ -611,28 +611,33 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
         duration: 0.83,
         ease: "power1.inOut",
         onUpdate: function () {
-          setDirectionalLightIntensity(this.targets()[0].intensity);
+          directionalLightRef.current.intensity = this.targets()[0].intensity;
+        },
+        onComplete: () => {
+          directionalLightIntensity.current = directionalLightIntensityTarget;
+          directionalLightRef.current.intensity = directionalLightIntensityTarget;
         },
       });
+
       gsap.to(directionalLightRef.current.position, {
         x: directionalLightPositionTarget[0],
         y: directionalLightPositionTarget[1],
         z: directionalLightPositionTarget[2],
         duration: 0.83,
         ease: "power1.inOut",
-        // onUpdate: () => {
-        //   const light = directionalLightRef.current;
-        //   if (light) {
-        //     // Update state progressively during the animation
-        //     setDirectionalLightVioletInitPos([light.position.x, light.position.y, light.position.z]);
-        //   }
-        // },
-        onComplete: () => {
-          setDirectionalLightPosition([
-            directionalLightPositionTarget[0],
-            directionalLightPositionTarget[1],
-            directionalLightPositionTarget[2],
-          ]);
+        onUpdate: function () {
+          directionalLightPosition.current = [
+            directionalLightRef.current.position.x,
+            directionalLightRef.current.position.y,
+            directionalLightRef.current.position.z,
+          ];
+        },
+        onComplete: function () {
+          directionalLightPosition.current = [
+            directionalLightRef.current.position.x,
+            directionalLightRef.current.position.y,
+            directionalLightRef.current.position.z,
+          ];
         },
       });
     }
@@ -643,7 +648,11 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
         duration: 0.83,
         ease: "power1.inOut",
         onUpdate: function () {
-          setRectArealightIntensity(this.targets()[0].intensity);
+          rectArealightRef.current.intensity = this.targets()[0].intensity;
+        },
+        onComplete: () => {
+          rectArealightIntensity.current = rectArealightIntensityTarget;
+          rectArealightRef.current.intensity = rectArealightIntensityTarget;
         },
       });
     }
@@ -658,7 +667,7 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
         camera.lookAt(0, 0, 0);
       },
       onComplete: () => {
-        setCameraPosition(targetPosition);
+        cameraPositionRef.current = targetPosition;
       },
     });
   };
@@ -668,19 +677,20 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
       <RectArealightWithHelper
         ref={rectArealightRef}
         color='#ffffff'
-        intensity={rectArealightIntensity}
+        intensity={rectArealightIntensity.current}
         position={[-183, 152, 268]}
         rotation={[0, -35, 0]}
       />
 
       <directionalLight
         ref={directionalLightRef}
-        position={directionalLightPosition}
-        args={[new THREE.Color("#9b00d8"), directionalLightIntensity]}
+        position={directionalLightPosition.current}
+        args={[new THREE.Color("#9b00d8"), directionalLightIntensity.current]}
       />
 
       <primitive ref={turbineRef} object={turbine_model} scale={[1.1, 1.1, 1.1]} position={[0, 2.85, 5.5]} />
       <EffectComposer multisampling={0} autoClear={true}>
+        <FXAA/>
         <Bloom
           ref={bloomRef}
           levels={6}
@@ -696,14 +706,17 @@ const Turbine = ({ rotationSpeedRef, bladeLightIntensityRef, farmingAllowed, sta
 };
 
 const TurbineRenderer = ({ farmingAllowed, ...props }) => {
+  const navigate = useNavigate();
+
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isEffectsReady, setIsEffectsReady] = useState(false);
   const [animationsReady, setAnimationsReady] = useState(false);
-  const [isActive, setIsActive] = useState(false); // Replacing farmingAllowed with active state
+  const [isActive, setIsActive] = useState(true); // Replacing farmingAllowed with active state
 
   const rotationSpeedRef = useRef(0.01); // Initial rotation speed
   const bladeLightIntensityRef = useRef(2.5); // Initial intensity
 
+  
   const maxSpeed = 0.1; // Define max speed
   const maxBladeLightIntensity = 8; // Maximum blade lights brightness intensity
   const stepsToMax = 15; // Number of clicks/taps to max out speed and intensity
@@ -759,6 +772,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
       <div style={{ position: "absolute", bottom: "20px", left: "20px", zIndex: 5 }}>
         <button onClick={() => setIsActive(true)}>Activate</button>
         <button onClick={() => setIsActive(false)}>Stop</button>
+        <button onClick={() => navigate("/test")}>Test Page</button>
       </div>
       <Stats />
       <Canvas
@@ -767,8 +781,8 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
           antialias: false,
           powerPreference: "low-power",
         }}
-        dpr={[1, 2]}
-        camera={{ near: 1, far: 1000, fov: 32 }}
+        dpr={[1, 1.75]}
+        camera={{ near: 1, far: 10000, fov: 32 }}
         onPointerDown={handleInteraction}
         {...props}
       >
@@ -792,7 +806,7 @@ const TurbineRenderer = ({ farmingAllowed, ...props }) => {
           />
           <RotatingBackground texturePath={backgroundWide} />
         </Suspense>
-        {/* <OrbitControls /> */}
+        <OrbitControls />
       </Canvas>
     </div>
   );
