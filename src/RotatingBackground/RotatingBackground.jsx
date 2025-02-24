@@ -4,37 +4,29 @@ import { useTexture } from "@react-three/drei";
 import { useEffect, useRef, useState } from "react";
 import { useFrame as useRaf } from "@darkroom.engineering/hamo";
 
-const RotatingBackground = ({ texturePath, speed = 0.025, shiftOffset = 0 }) => {
+const RotatingBackground = ({ texturePath, speed = 0.025, shiftOffset = 0, isMainBackground }) => {
   const texture = useTexture(texturePath);
   texture.wrapS = texture.wrapT = RepeatWrapping;
 
-  const initPositionX = 0;
   const plateHeight = 100;
   const plateWidth = plateHeight * 2.67;
 
   const groupRef = useRef(null);
-  const plate1Ref = useRef(null);
-  const plate2Ref = useRef(null);
-  const plate3Ref = useRef(null);
   const plateRefs = useRef([]);
 
-  useEffect(() => {
-    plateRefs.current = [plate1Ref.current, plate2Ref.current, plate3Ref.current];
-  }, []);
-
-  const [positionX, setPositionX] = useState(initPositionX);
+  const [positionX, setPositionX] = useState(0);
 
   useRaf((_, delta) => {
-    const normalizedDelta = delta / (1000 / 60);
-    const moveX = speed * normalizedDelta;
+    const clampedDelta = Math.min(delta, 0.1);
+    const moveX = speed * clampedDelta * 16.67;
 
     for (let plate of plateRefs.current) {
-      plate.position.x -= moveX;
+      if (plate) plate.position.x -= moveX;
     }
 
-    const rightmostX = Math.max(...plateRefs.current.map(plate => plate.position.x));
+    const rightmostX = Math.max(...plateRefs.current.map(plate => plate?.position.x ?? -Infinity));
     for (let plate of plateRefs.current) {
-      if (plate.position.x < -plateWidth) {
+      if (plate && plate.position.x < -plateWidth) {
         plate.position.x = rightmostX + plateWidth;
       }
     }
@@ -58,19 +50,13 @@ const RotatingBackground = ({ texturePath, speed = 0.025, shiftOffset = 0 }) => 
   };
 
   return (
-    <group ref={groupRef} position={[positionX, 0, 0]}>
-      <mesh ref={plate1Ref} position={[-plateWidth, 0, -112]}>
-        <planeGeometry args={[plateWidth, plateHeight]} />
-        <meshBasicMaterial map={texture} />
-      </mesh>
-      <mesh ref={plate2Ref} position={[0, 0, -112]}>
-        <planeGeometry args={[plateWidth, plateHeight]} />
-        <meshBasicMaterial map={texture} />
-      </mesh>
-      <mesh ref={plate3Ref} position={[plateWidth, 0, -112]}>
-        <planeGeometry args={[plateWidth, plateHeight]} />
-        <meshBasicMaterial map={texture} />
-      </mesh>
+    <group ref={groupRef} position={[positionX, 0, 0]} visible={isMainBackground}>
+      {[...Array(3)].map((_, i) => (
+        <mesh key={i} ref={el => (plateRefs.current[i] = el)} position={[i * plateWidth - plateWidth, 0, -112]}>
+          <planeGeometry args={[plateWidth, plateHeight]} />
+          <meshBasicMaterial map={texture} />
+        </mesh>
+      ))}
     </group>
   );
 };
